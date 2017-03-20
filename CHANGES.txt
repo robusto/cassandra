@@ -3,6 +3,7 @@
  * Fix race in CompactionStrategyManager's pause/resume (CASSANDRA-11922)
 Merged from 3.x:
  * Exception when computing read-repair for range tombstones (CASSANDRA-12263)
+ * Cache local ranges when calculating repair neighbors (CASSANDRA-11933)
  * Don't try to get sstables for non-repairing column families (CASSANDRA-12077)
  * Avoid sstable corrupt exception due to dropped static column (CASSANDRA-12582)
  * NullPointerException during compaction on table with static columns (CASSANDRA-12336)
