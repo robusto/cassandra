@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.tracing.Tracing;
@@ -69,6 +70,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
      */
     public void run()
     {
+        Keyspace ks = Keyspace.open(desc.keyspace);
+        ColumnFamilyStore cfs = ks.getColumnFamilyStore(desc.columnFamily);
+        cfs.metric.activeRepairs.inc();
         List<InetAddress> allEndpoints = new ArrayList<>(session.endpoints);
         allEndpoints.add(FBUtilities.getBroadcastAddress());
 
@@ -177,6 +181,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
         // Wait for validation to complete
         Futures.getUnchecked(validations);
+        cfs.metric.activeRepairs.dec();
     }
 
     /**

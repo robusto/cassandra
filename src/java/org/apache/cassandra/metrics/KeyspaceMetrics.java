@@ -102,6 +102,8 @@ public class KeyspaceMetrics
     public final Counter speculativeFailedRetries;
     /** Needed to speculate, but didn't have enough replicas **/
     public final Counter speculativeInsufficientReplicas;
+    /** Number of active repairs on this keyspace */
+    public final Counter activeRepairs;
     /** total time spent as a repair coordinator */
     public final Timer repairTime;
     /** total time spent preparing for repair */
@@ -283,6 +285,13 @@ public class KeyspaceMetrics
             public Long getValue(TableMetrics metric)
             {
                 return metric.speculativeInsufficientReplicas.getCount();
+            }
+        });
+        activeRepairs = createKeyspaceCounter("ActiveRepairs", new MetricValue()
+        {
+            public Long getValue(TableMetrics metric)
+            {
+                return metric.activeRepairs.getCount();
             }
         });
         repairTime = Metrics.timer(factory.createMetricName("RepairTime"));

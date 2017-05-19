@@ -3339,6 +3339,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return new FutureTask<>(task, null);
     }
 
+    public Map<Integer, Map<String, String>> getRepairCommands()
+    {
+        return ActiveRepairService.instance.getRepairCommands();
+
+    }
+
+    public void forceTerminateRepairCommand(int cmd)
+    {
+        ActiveRepairService.instance.terminateCommand(cmd);
+    }
+
     public void forceTerminateAllRepairSessions()
     {
         ActiveRepairService.instance.terminateSessions();

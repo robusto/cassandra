@@ -405,7 +405,9 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         List<ListenableFuture<RepairSessionResult>> futures = new ArrayList<>(options.getRanges().size());
         for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> p : commonRanges)
         {
-            RepairSession session = ActiveRepairService.instance.submitRepairSession(parentSession,
+            RepairSession session = ActiveRepairService.instance.submitRepairSession(cmd,
+                                                                                     options,
+                                                                                     parentSession,
                                                                                      p.right,
                                                                                      keyspace,
                                                                                      options.getParallelism(),

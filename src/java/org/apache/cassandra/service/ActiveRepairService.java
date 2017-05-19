@@ -28,7 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
@@ -61,6 +63,7 @@ import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.RepairCommand;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.RepairParallelism;
@@ -108,6 +111,11 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     public static final long UNREPAIRED_SSTABLE = 0;
     public static final UUID NO_PENDING_REPAIR = null;
+
+    /**
+     * A map of active repair commands.
+     */
+    private final ConcurrentMap<Integer, RepairCommand> commands = new ConcurrentHashMap<>();
 
     /**
      * A map of active coordinator session.
@@ -161,7 +169,9 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
      *
      * @return Future for asynchronous call or null if there is no need to repair
      */
-    public RepairSession submitRepairSession(UUID parentRepairSession,
+    public RepairSession submitRepairSession(int cmd,
+                                             RepairOption options,
+                                             UUID parentRepairSession,
                                              Collection<Range<Token>> range,
                                              String keyspace,
                                              RepairParallelism parallelismDegree,
@@ -180,6 +190,8 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
         final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, endpoints, isConsistent, pullRepair, previewKind, cfnames);
 
+        final RepairCommand command = new RepairCommand(cmd, keyspace, options, session.getId(), cfnames);
+        commands.put(cmd, command);
         sessions.put(session.getId(), session);
         // register listeners
         registerOnFdAndGossip(session);
@@ -192,6 +204,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
              */
             public void run()
             {
+                commands.remove(cmd);
                 sessions.remove(session.getId());
             }
         }, MoreExecutors.directExecutor());
@@ -218,6 +231,32 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                 gossiper.unregister(task);
             }
         }, MoreExecutors.sameThreadExecutor());
+    }
+
+    public synchronized Map<Integer, Map<String, String>> getRepairCommands()
+    {
+        Map<Integer, Map<String, String>> repairCommands = new HashMap<>();
+        for (Map.Entry<Integer, RepairCommand> entry : commands.entrySet()) {
+            RepairCommand command = entry.getValue();
+            Map<String, String> repairDesc = command.options.asMap();
+            repairDesc.put("commandNo", entry.getKey().toString());
+            repairDesc.put("keyspace", command.keyspace);
+            repairDesc.put(RepairOption.COLUMNFAMILIES_KEY, Joiner.on(",").join(command.cfnames));
+            repairCommands.put(entry.getKey(), repairDesc);
+        }
+        return repairCommands;
+    }
+
+    public synchronized void terminateCommand(int cmd)
+    {
+        RepairCommand command = commands.get(cmd);
+        if (command != null)
+        {
+            RepairSession session = sessions.get(command.sessionId);
+            Throwable cause = new IOException("Terminate repair command is called");
+            session.forceShutdown(cause);
+            parentRepairSessions.remove(session.parentRepairSession);
+        }
     }
 
     public synchronized void terminateSessions()

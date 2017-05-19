@@ -30,6 +30,8 @@ import java.util.concurrent.TimeoutException;
 import javax.management.NotificationEmitter;
 import javax.management.openmbean.TabularData;
 
+import org.apache.cassandra.repair.RepairCommand;
+
 public interface StorageServiceMBean extends NotificationEmitter
 {
     /**
@@ -321,6 +323,14 @@ public interface StorageServiceMBean extends NotificationEmitter
      * @return Repair command number, or 0 if nothing to repair
      */
     public int repairAsync(String keyspace, Map<String, String> options);
+
+    public Map<Integer, Map<String, String>> getRepairCommands();
+
+    /**
+     * Terminate repair command.
+     * @param cmd Repair command number
+     */
+    public void forceTerminateRepairCommand(int cmd);
 
     public void forceTerminateAllRepairSessions();
 

@@ -74,6 +74,7 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.ThreadPoolMetrics;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.MessagingServiceMBean;
+import org.apache.cassandra.repair.RepairCommand;
 import org.apache.cassandra.service.ActiveRepairServiceMBean;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.CacheServiceMBean;
@@ -384,6 +385,21 @@ public class NodeProbe implements AutoCloseable
                 out.println("Exception occurred during clean-up. " + e);
             }
         }
+    }
+
+    public Map<Integer, Map<String, String>> getRepairs()
+    {
+        return ssProxy.getRepairCommands();
+    }
+
+    public void terminateRepair(int cmd)
+    {
+        ssProxy.forceTerminateRepairCommand(cmd);
+    }
+
+    public void terminateAllRepairs()
+    {
+        ssProxy.forceTerminateAllRepairSessions();
     }
 
     public Map<Sampler, CompositeData> getPartitionSample(String ks, String cf, int capacity, int duration, int count, List<Sampler> samplers) throws OpenDataException
