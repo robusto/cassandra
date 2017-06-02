@@ -28,6 +28,7 @@ import org.junit.Test;
 import org.apache.cassandra.cql3.CQLTester;
 import static org.apache.commons.lang3.StringUtils.isEmpty;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 public class DeleteTest extends CQLTester
 {
@@ -35,14 +36,88 @@ public class DeleteTest extends CQLTester
     @Test
     public void testRangeDeletion() throws Throwable
     {
-        createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a, b, c))");
+        testRangeDeletion(true, true);
+        testRangeDeletion(false, true);
+        testRangeDeletion(true, false);
+        testRangeDeletion(false, false);
+    }
 
+    private void testRangeDeletion(boolean flushData, boolean flushTombstone) throws Throwable
+    {
+        createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a, b, c))");
         execute("INSERT INTO %s (a, b, c, d) VALUES (?, ?, ?, ?)", 1, 1, 1, 1);
-        flush();
+        flush(flushData);
         execute("DELETE FROM %s WHERE a=? AND b=?", 1, 1);
-        flush();
+        flush(flushTombstone);
         assertEmpty(execute("SELECT * FROM %s WHERE a=? AND b=? AND c=?", 1, 1, 1));
     }
+
+    @Test
+    public void testDeleteRange() throws Throwable
+    {
+        testDeleteRange(true, true);
+        testDeleteRange(false, true);
+        testDeleteRange(true, false);
+        testDeleteRange(false, false);
+    }
+
+    private void testDeleteRange(boolean flushData, boolean flushTombstone) throws Throwable
+    {
+        createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 1, 1, 1);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 1, 2);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 2, 3);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 3, 4);
+        flush(flushData);
+
+        execute("DELETE FROM %s WHERE a = ? AND b >= ?", 2, 2);
+        flush(flushTombstone);
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM %s"),
+                                row(1, 1, 1),
+                                row(2, 1, 2));
+
+        assertRows(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 1),
+                   row(2, 1, 2));
+        assertEmpty(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 2));
+        assertEmpty(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 3));
+    }
+
+    @Test
+    public void testCrossMemSSTableMultiColumn() throws Throwable
+    {
+        testCrossMemSSTableMultiColumn(true, true);
+        testCrossMemSSTableMultiColumn(false, true);
+        testCrossMemSSTableMultiColumn(true, false);
+        testCrossMemSSTableMultiColumn(false, false);
+    }
+
+    private void testCrossMemSSTableMultiColumn(boolean flushData, boolean flushTombstone) throws Throwable
+    {
+        createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 1, 1, 1);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 1, 2);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 2, 2);
+        execute("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 2, 3, 3);
+        flush(flushData);
+
+        execute("DELETE FROM %s WHERE a = ? AND (b) = (?)", 2, 2);
+        execute("DELETE FROM %s WHERE a = ? AND (b) = (?)", 2, 3);
+
+        flush(flushTombstone);
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM %s"),
+                                row(1, 1, 1),
+                                row(2, 1, 2));
+
+        assertRows(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 1),
+                   row(2, 1, 2));
+        assertEmpty(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 2));
+        assertEmpty(execute("SELECT * FROM %s WHERE a = ? AND b = ?", 2, 3));
+    }
+
 
     /**
      * Test simple deletion and in particular check for #4193 bug
@@ -453,7 +528,7 @@ public class DeleteTest extends CQLTester
                 assertEmpty(execute("SELECT * FROM %s WHERE partitionKey = ? AND clustering = ?", 0, 1));
             }
 
-            execute("DELETE FROM %s WHERE partitionKey = ? AND (clustering) = (?)", 0, 1);
+            execute("DELETE FROM %s WHERE partitionKey = ? AND clustering = ?", 0, 1);
             flush(forceFlush);
             assertEmpty(execute("SELECT value FROM %s WHERE partitionKey = ? AND clustering = ?", 0, 1));
 
@@ -1104,5 +1179,101 @@ public class DeleteTest extends CQLTester
 
         compact();
         assertRows(execute("SELECT * FROM %s"), row(0, null));
+    }
+
+    @Test
+    public void testDeleteAndReverseQueries() throws Throwable
+    {
+        // This test insert rows in one sstable and a range tombstone covering some of those rows in another, and it
+        // validates we correctly get only the non-removed rows when doing reverse queries.
+
+        createTable("CREATE TABLE %s (k text, i int, PRIMARY KEY (k, i))");
+
+        for (int i = 0; i < 10; i++)
+            execute("INSERT INTO %s(k, i) values (?, ?)", "a", i);
+
+        flush();
+
+        execute("DELETE FROM %s WHERE k = ? AND i >= ? AND i <= ?", "a", 2, 7);
+
+        assertRows(execute("SELECT i FROM %s WHERE k = ? ORDER BY i DESC", "a"),
+            row(9), row(8), row(1), row(0)
+        );
+
+        flush();
+
+        assertRows(execute("SELECT i FROM %s WHERE k = ? ORDER BY i DESC", "a"),
+            row(9), row(8), row(1), row(0)
+        );
+    }
+
+    @Test
+    public void testQueryingOnRangeTombstoneBoundForward() throws Throwable
+    {
+        createTable("CREATE TABLE %s (k text, i int, PRIMARY KEY (k, i))");
+
+        execute("INSERT INTO %s (k, i) VALUES (?, ?)", "a", 0);
+
+        execute("DELETE FROM %s WHERE k = ? AND i > ? AND i <= ?", "a", 0, 1);
+        execute("DELETE FROM %s WHERE k = ? AND i > ?", "a", 1);
+
+        flush();
+
+        assertEmpty(execute("SELECT i FROM %s WHERE k = ? AND i = ?", "a", 1));
+    }
+
+    @Test
+    public void testQueryingOnRangeTombstoneBoundReverse() throws Throwable
+    {
+        createTable("CREATE TABLE %s (k text, i int, PRIMARY KEY (k, i))");
+
+        execute("INSERT INTO %s (k, i) VALUES (?, ?)", "a", 0);
+
+        execute("DELETE FROM %s WHERE k = ? AND i > ? AND i <= ?", "a", 0, 1);
+        execute("DELETE FROM %s WHERE k = ? AND i > ?", "a", 1);
+
+        flush();
+
+        assertRows(execute("SELECT i FROM %s WHERE k = ? AND i <= ? ORDER BY i DESC", "a", 1), row(0));
+    }
+
+    @Test
+    public void testReverseQueryWithRangeTombstoneOnMultipleBlocks() throws Throwable
+    {
+        createTable("CREATE TABLE %s (k text, i int, v text, PRIMARY KEY (k, i))");
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 1200; i++)
+            sb.append('a');
+        String longText = sb.toString();
+
+        for (int i = 0; i < 10; i++)
+            execute("INSERT INTO %s(k, i, v) VALUES (?, ?, ?) USING TIMESTAMP 3", "a", i*2, longText);
+
+        execute("DELETE FROM %s USING TIMESTAMP 1 WHERE k = ? AND i >= ? AND i <= ?", "a", 12, 16);
+
+        flush();
+
+        execute("INSERT INTO %s(k, i, v) VALUES (?, ?, ?) USING TIMESTAMP 0", "a", 3, longText);
+        execute("INSERT INTO %s(k, i, v) VALUES (?, ?, ?) USING TIMESTAMP 3", "a", 11, longText);
+        execute("INSERT INTO %s(k, i, v) VALUES (?, ?, ?) USING TIMESTAMP 0", "a", 15, longText);
+        execute("INSERT INTO %s(k, i, v) VALUES (?, ?, ?) USING TIMESTAMP 0", "a", 17, longText);
+
+        flush();
+
+        assertRows(execute("SELECT i FROM %s WHERE k = ? ORDER BY i DESC", "a"),
+                   row(18),
+                   row(17),
+                   row(16),
+                   row(14),
+                   row(12),
+                   row(11),
+                   row(10),
+                   row(8),
+                   row(6),
+                   row(4),
+                   row(3),
+                   row(2),
+                   row(0));
     }
 }
