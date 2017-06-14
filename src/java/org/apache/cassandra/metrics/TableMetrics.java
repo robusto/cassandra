@@ -133,6 +133,10 @@ public class TableMetrics
     public final LatencyMetrics casPropose;
     /** CAS Commit metrics */
     public final LatencyMetrics casCommit;
+    /** Number of started repairs as coordinator on this table */
+    public final Counter repairsStarted;
+    /** Number of completed repairs as coordinator on this table */
+    public final Counter repairsCompleted;
 
     public final Timer coordinatorReadLatency;
     public final Timer coordinatorScanLatency;
@@ -645,6 +649,9 @@ public class TableMetrics
         casPrepare = new LatencyMetrics(factory, "CasPrepare", cfs.keyspace.metric.casPrepare);
         casPropose = new LatencyMetrics(factory, "CasPropose", cfs.keyspace.metric.casPropose);
         casCommit = new LatencyMetrics(factory, "CasCommit", cfs.keyspace.metric.casCommit);
+
+        repairsStarted = createTableCounter("RepairsStarted");
+        repairsCompleted = createTableCounter("RepairsCompleted");
     }
 
     public void updateSSTableIterated(int count)
