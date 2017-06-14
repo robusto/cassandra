@@ -19,9 +19,9 @@ package org.apache.cassandra.metrics;
 
 import java.util.Set;
 
+import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
-import com.codahale.metrics.MetricRegistry;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 
@@ -88,7 +88,11 @@ public class KeyspaceMetrics
     public final LatencyMetrics casPropose;
     /** CAS Commit metrics */
     public final LatencyMetrics casCommit;
-    
+    /** Number of started repairs as coordinator on this keyspace */
+    public final Counter repairsStarted;
+    /** Number of completed repairs as coordinator on this keyspace */
+    public final Counter repairsCompleted;
+
     public final MetricNameFactory factory;
     private Keyspace keyspace;
     
@@ -231,6 +235,21 @@ public class KeyspaceMetrics
         casPrepare = new LatencyMetrics(factory, "CasPrepare");
         casPropose = new LatencyMetrics(factory, "CasPropose");
         casCommit = new LatencyMetrics(factory, "CasCommit");
+
+        repairsStarted = createKeyspaceCounter("RepairsStarted", new MetricValue()
+        {
+            public Long getValue(ColumnFamilyMetrics metric)
+            {
+                return metric.repairsStarted.getCount();
+            }
+        });
+        repairsCompleted = createKeyspaceCounter("RepairsCompleted", new MetricValue()
+        {
+            public Long getValue(ColumnFamilyMetrics metric)
+            {
+                return metric.repairsCompleted.getCount();
+            }
+        });
     }
 
     /**
@@ -273,6 +292,30 @@ public class KeyspaceMetrics
         return Metrics.register(factory.createMetricName(name), new Gauge<Long>()
         {
             public Long getValue()
+            {
+                long sum = 0;
+                for (ColumnFamilyStore cf : keyspace.getColumnFamilyStores())
+                {
+                    sum += extractor.getValue(cf.metric);
+                }
+                return sum;
+            }
+        });
+    }
+
+    /**
+     * Creates a counter that will sum the current value of a metric for all column families in this keyspace
+     * @param name
+     * @param extractor
+     * @return Counter that computes sum of MetricValue.getValue()
+     */
+    private Counter createKeyspaceCounter(String name, final MetricValue extractor)
+    {
+        allMetrics.add(name);
+        return Metrics.register(factory.createMetricName(name), new Counter()
+        {
+            @Override
+            public long getCount()
             {
                 long sum = 0;
                 for (ColumnFamilyStore cf : keyspace.getColumnFamilyStores())

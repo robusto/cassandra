@@ -24,6 +24,7 @@
  * Fix ColumnCounter::countAll behaviour for reverse queries (CASSANDRA-13222)
  * Exceptions encountered calling getSeeds() breaks OTC thread (CASSANDRA-13018)
  * Commitlog replay may fail if last mutation is within 4 bytes of end of segment (CASSANDRA-13282)
+ * Added started & completed repair metrics (CASSANDRA-13598)
 Merged from 2.1:
  * Fix 2ndary indexes on primary key columns to don't create expiring entries (CASSANDRA-13412)
  * Set javac encoding to utf-8 (CASSANDRA-13466)
