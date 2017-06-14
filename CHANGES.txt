@@ -41,6 +41,7 @@ Merged from 3.0:
  * Delete illegal character from StandardTokenizerImpl.jflex (CASSANDRA-13417)
  * Fix cqlsh automatic protocol downgrade regression (CASSANDRA-13307)
  * Tracing payload not passed from QueryMessage to tracing session (CASSANDRA-12835)
+ * Added started & completed repair metrics (CASSANDRA-13598)
 Merged from 3.0:
  * Ensure int overflow doesn't occur when calculating large partition warning size (CASSANDRA-13172)
  * Ensure consistent view of partition columns between coordinator and replica in ColumnFilter (CASSANDRA-13004)
